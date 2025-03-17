@@ -1,5 +1,5 @@
 from isaaclab.utils import configclass
-from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, RslRlPpoAlgorithmCfg
+from p4rl.rsl_rl.rl_cfg import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, RslRlPpoAlgorithmCfg, RslRlPpoResidualActorCriticCfg
 
 
 @configclass
@@ -9,10 +9,11 @@ class AnymalDRoughPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     save_interval = 50
     experiment_name = "anymal_d_rough"
     empirical_normalization = False
-    policy = RslRlPpoActorCriticCfg(
+    policy = RslRlPpoResidualActorCriticCfg(
+        num_residual_blocks=10,
+        residual_block_hidden_layers=2,
+        residual_block_hidden_dim=128,
         init_noise_std=1.0,
-        actor_hidden_dims=[512, 256, 128],
-        critic_hidden_dims=[512, 256, 128],
         activation="elu",
     )
     algorithm = RslRlPpoAlgorithmCfg(
@@ -38,5 +39,10 @@ class AnymalDFlatPPORunnerCfg(AnymalDRoughPPORunnerCfg):
 
         self.max_iterations = 300
         self.experiment_name = "anymal_d_flat"
-        self.policy.actor_hidden_dims = [128, 128, 128]
-        self.policy.critic_hidden_dims = [128, 128, 128]
+        self.policy=RslRlPpoResidualActorCriticCfg(
+                num_residual_blocks=10,
+                residual_block_hidden_layers=2,
+                residual_block_hidden_dim=128,
+                init_noise_std=1.0,
+                activation="elu",
+            )
