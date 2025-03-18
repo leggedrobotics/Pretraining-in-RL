@@ -23,7 +23,7 @@ class AnymalDRoughPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         entropy_coef=0.005,
         num_learning_epochs=5,
         num_mini_batches=4,
-        learning_rate=1.0e-3,
+        learning_rate=1.0e-4,
         schedule="adaptive",
         gamma=0.99,
         lam=0.95,
@@ -37,7 +37,7 @@ class AnymalDFlatPPORunnerCfg(AnymalDRoughPPORunnerCfg):
     def __post_init__(self):
         super().__post_init__()
 
-        self.max_iterations = 300
+        self.max_iterations = 500
         self.experiment_name = "anymal_d_flat"
         self.policy=RslRlPpoResidualActorCriticCfg(
                 num_residual_blocks=10,
