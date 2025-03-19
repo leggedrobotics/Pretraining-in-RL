@@ -9,11 +9,11 @@ from typing import Literal, Union
 from isaaclab.utils import configclass
 
 @configclass
-class RslRlPpoResidualActorCriticCfg:
+class RslRlPpoCommandedDeepActorCriticCfg:
     """Configuration for the PPO ResNet-inspired actor-critic networks.
         This class assume symetrical architecture for actor and critic networks."""
 
-    class_name: str = "ResidualActorCritic"
+    class_name: str = "CommandedDeepActorCritic"
     
     num_residual_blocks: int = MISSING
     """The number of residual blocks in the actor and critic network. """
@@ -23,6 +23,12 @@ class RslRlPpoResidualActorCriticCfg:
 
     residual_block_hidden_layers: int = MISSING
     """The number of hidden layers in the residual block."""
+
+    command_dim: int = MISSING
+    """The dimension of the command vector. IMPORTANT: The command must be at the end of the observation vector."""
+
+    final_mlp_dims: list[int] = MISSING
+    """The final mlp dimensions of the actor and critic networks."""
 
     init_noise_std: float = MISSING
     """The initial noise standard deviation for the policy."""
@@ -114,7 +120,7 @@ class RslRlOnPolicyRunnerCfg:
     empirical_normalization: bool = MISSING
     """Whether to use empirical normalization."""
 
-    policy: Union[RslRlPpoActorCriticCfg, RslRlPpoResidualActorCriticCfg] = MISSING
+    policy: Union[RslRlPpoActorCriticCfg, RslRlPpoCommandedDeepActorCriticCfg] = MISSING
     """The policy configuration."""
 
     algorithm: RslRlPpoAlgorithmCfg = MISSING

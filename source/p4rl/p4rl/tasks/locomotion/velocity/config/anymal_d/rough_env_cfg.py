@@ -5,7 +5,11 @@ from p4rl.tasks.locomotion.velocity.velocity_env_cfg import LocomotionVelocityRo
 ##
 # Pre-defined configs
 ##
-from isaaclab_assets.robots.anymal import ANYMAL_D_CFG  # isort: skip
+# from isaaclab_assets.robots.anymal import ANYMAL_D_CFG  # isort: skip
+from p4rl.tasks.pedipulation.config.anymal_d.pedipulation_base import ANYMAL_D_CFG  # isort: skip
+import isaaclab.sim as sim_utils
+from isaaclab.assets import ArticulationCfg, AssetBaseCfg
+
 
 
 @configclass

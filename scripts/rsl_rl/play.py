@@ -46,6 +46,7 @@ from isaaclab_tasks.utils import get_checkpoint_path, parse_env_cfg
 
 # Import extensions to set up environment tasks
 import p4rl.tasks  # noqa: F401
+import isaac.locoma.tasks  # noqa: F401
 
 
 def main():

@@ -29,6 +29,8 @@
 docker/artifacts/
 *.tmp
 
+./source/p4rl/p4rl/assets/*
+
 # Isaac-Sim packman
 _isaac_sim*
 _repo

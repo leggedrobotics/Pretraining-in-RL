@@ -1,13 +1,17 @@
+# Copyright (c) 2022-2024, The Isaac Lab Project Developers.
+# All rights reserved.
+#
+# SPDX-License-Identifier: BSD-3-Clause
+
 from isaaclab.utils import configclass
 from p4rl.rsl_rl.rl_cfg import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, RslRlPpoAlgorithmCfg, RslRlPpoCommandedDeepActorCriticCfg
 
-
 @configclass
-class AnymalDRoughPPORunnerCfg(RslRlOnPolicyRunnerCfg):
+class AnymalDFlatPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
-    max_iterations = 1500
-    save_interval = 50
-    experiment_name = "anymal_d_rough"
+    max_iterations = 4000
+    save_interval = 250
+    experiment_name = "anymal_d_pedipulation_flat"
     empirical_normalization = False
     policy = RslRlPpoCommandedDeepActorCriticCfg(
         num_residual_blocks=8,
@@ -22,10 +26,10 @@ class AnymalDRoughPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         value_loss_coef=1.0,
         use_clipped_value_loss=True,
         clip_param=0.2,
-        entropy_coef=0.005,
+        entropy_coef=0.004,
         num_learning_epochs=5,
         num_mini_batches=4,
-        learning_rate=1.0e-3,
+        learning_rate=1.0e-4,
         schedule="adaptive",
         gamma=0.99,
         lam=0.95,
@@ -33,12 +37,9 @@ class AnymalDRoughPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         max_grad_norm=1.0,
     )
 
-
 @configclass
-class AnymalDFlatPPORunnerCfg(AnymalDRoughPPORunnerCfg):
+class AnymalDRoughPPORunnerCfg(AnymalDFlatPPORunnerCfg):
     def __post_init__(self):
         super().__post_init__()
-
-        self.max_iterations = 800
-        self.experiment_name = "anymal_d_flat"
-
+        self.experiment_name = "anymal_d_pedipulation_rough"
+        self.max_iterations = 10000
