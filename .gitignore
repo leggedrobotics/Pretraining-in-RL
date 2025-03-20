@@ -29,7 +29,10 @@
 docker/artifacts/
 *.tmp
 
-./source/p4rl/p4rl/assets/*
+**/source/p4rl/p4rl/assets/*
+
+*.jpg
+*.usd
 
 # Isaac-Sim packman
 _isaac_sim*

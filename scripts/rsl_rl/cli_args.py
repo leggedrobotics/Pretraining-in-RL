@@ -87,7 +87,7 @@ def update_rsl_rl_cfg(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli: argparse.Name
     if agent_cfg.logger in {"wandb", "neptune"} and args_cli.log_project_name:
         agent_cfg.wandb_project = args_cli.log_project_name
         agent_cfg.neptune_project = args_cli.log_project_name
-    if args_cli.learning_rate is not None:
+    if hasattr(args_cli, "learning_rate") and args_cli.learning_rate is not None:
         agent_cfg.algorithm.learning_rate = eval(args_cli.learning_rate)
 
     return agent_cfg

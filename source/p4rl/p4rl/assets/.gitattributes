@@ -1,3 +1,0 @@
-anymal-d-pedipulation/anymal_d.usd filter=lfs diff=lfs merge=lfs -text
-anymal-d-pedipulation/config.yaml filter=lfs diff=lfs merge=lfs -text
-anymal-d-pedipulation/Props filter=lfs diff=lfs merge=lfs -text
