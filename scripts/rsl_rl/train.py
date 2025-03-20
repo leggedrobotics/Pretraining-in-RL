@@ -25,7 +25,10 @@ parser.add_argument("--num_envs", type=int, default=None, help="Number of enviro
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment. Set -1 to seed randomly.")
 parser.add_argument("--max_iterations", type=int, default=None, help="RL Policy training iterations.")
-parser.add_argument("--learning_rate", type=str, default=None, help="learning rate for the RL algorithm")
+parser.add_argument("--learning_rate", type=int, default=None, help="learning rate for the RL algorithm")
+parser.add_argument("--freeze_pretrain_until_iteration", type=int, default=None, help="when finetuning, freeze pretrain until this iteration")
+parser.add_argument("--pretrained_weights_path", type=str, default=None, help="absolute path of pretrained weights")
+
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -50,7 +53,7 @@ import os
 import torch
 from datetime import datetime
 
-from rsl_rl.runners import OnPolicyRunner
+from rsl_rl.runners import OnPolicyRunner, PretrainFinetunePolicyRunner
 
 from isaaclab.envs import (
     DirectMARLEnv,
@@ -121,16 +124,19 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     env = RslRlVecEnvWrapper(env)
 
     # create runner from rsl-rl
-    runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
+    runner = PretrainFinetunePolicyRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
     # write git state to logs
     runner.add_git_repo_to_log(__file__)
     # save resume path before creating a new log_dir
     if agent_cfg.resume:
-        # get path to previous checkpoint
-        resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
+        if args_cli.pretrained_weights_path is not None:
+            resume_path = args_cli.pretrained_weights_path
+        else:
+            # get path to previous checkpoint
+            resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
         print(f"[INFO]: Loading model checkpoint from: {resume_path}")
         # load previously trained model
-        runner.load(resume_path)
+        runner.load(resume_path, load_optimizer=False, load_only_pretrain=True) #!!! load_only_pretrain=True
 
     # dump the configuration into log-directory
     dump_yaml(os.path.join(log_dir, "params", "env.yaml"), env_cfg)
@@ -139,7 +145,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     dump_pickle(os.path.join(log_dir, "params", "agent.pkl"), agent_cfg)
 
     # run training
-    runner.learn(num_learning_iterations=agent_cfg.max_iterations, init_at_random_ep_len=True)
+    runner.learn(num_learning_iterations=agent_cfg.max_iterations, init_at_random_ep_len=True,
+                  freeze_pretrain_until_iteration=args_cli.freeze_pretrain_until_iteration)
 
     # close the simulator
     env.close()
