@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import argparse
 
-from omni.isaac.orbit.app import AppLauncher
+from isaaclab.app import AppLauncher
 
 # add argparse arguments
 parser = argparse.ArgumentParser(description="This script demonstrates how to use the concept of an Environment.")
@@ -40,16 +40,15 @@ import os
 import torch
 import numpy as np
 
-from omni.isaac.orbit_assets import ORBIT_ASSETS_DATA_DIR
+# from omni.isaac.orbit_assets import ORBIT_ASSETS_DATA_DIR
+# from omni.isaac.orbit.envs import BaseEnv, BaseEnvCfg
+# import omni.isaac.orbit_tasks.loco_manipulation.wbc_teacher_student.mdp as mdp
 
-from omni.isaac.orbit.envs import BaseEnv, BaseEnvCfg
-from omni.isaac.orbit.terrains import TerrainImporterCfg
-from omni.isaac.orbit.utils.math import subtract_frame_transforms
-import omni.isaac.orbit_tasks.loco_manipulation.wbc_teacher_student.mdp as mdp
-
+from isaaclab.utils.math import subtract_frame_transforms
+from isaaclab.terrains import TerrainImporterCfg
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg
-from isaaclab.envs import ManagerBasedRLEnvCfg, BaseEnv, BaseEnvCfg
+from isaaclab.envs import ManagerBasedEnvCfg, ManagerBasedEnv
 from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
@@ -57,7 +56,7 @@ from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.sensors import ContactSensorCfg, RayCasterCfg
+from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, ContactSensor
 from isaaclab.utils import configclass
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 from isaaclab_assets.robots.anymal import ANYDRIVE_4_MLP_ACTUATOR_CFG
@@ -68,12 +67,26 @@ import p4rl.tasks.pedipulation.mdp as mdp
 ##
 # Pre-defined configs
 ##
-from isaaclab_assets.robots.alma import ALMA_D_WHEELS_NO_TOOL_CFG, LEG_JOINT_NAMES, ARM_JOINT_NAMES, WHEEL_JOINT_NAMES, ARM_BODY_NAMES
+from p4rl.tasks.pedipulation.config.anymal_d.pedipulation_base import ANYMAL_D_CFG  # isort: skip
 
+# JOINT_NAMES = ["base", "*HIP", "*THIGH", "*SHANK", "*FOOT"]
 
+BODY_NAMES = ['base', 'LF_HIP', 'LF_THIGH', 'LF_SHANK', 'LF_FOOT', 'LH_HIP', 'LH_THIGH', 'LH_SHANK', 'LH_FOOT', 'RF_HIP', 'RF_THIGH', 'RF_SHANK', 'RF_FOOT', 'RH_HIP', 'RH_THIGH', 'RH_SHANK', 'RH_FOOT']
+JOINT_NAMES = ['LF_HAA', 'LH_HAA', 'RF_HAA', 'RH_HAA', 'LF_HFE', 'LH_HFE', 'RF_HFE', 'RH_HFE', 'LF_KFE', 'LH_KFE', 'RF_KFE', 'RH_KFE']
+
+def obs_undesired_contacts(env: ManagerBasedEnvCfg, threshold: float, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
+    """Penalize undesired contacts as the number of violations that are above a threshold."""
+    # extract the used quantities (to enable type-hinting)
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    # check if contact force is above threshold
+    net_contact_forces = contact_sensor.data.net_forces_w_history
+    is_contact = torch.max(torch.norm(net_contact_forces[:, :, sensor_cfg.body_ids], dim=-1), dim=1)[0] > threshold
+    # sum over contacts for each environment
+    return torch.sum(is_contact, dim=1).reshape(env.num_envs, -1)
 ##
 # Scene definition
 ##
+
 
 @configclass
 class MySceneCfg(InteractiveSceneCfg):
@@ -94,7 +107,7 @@ class MySceneCfg(InteractiveSceneCfg):
     )
 
     # add robot
-    robot: ArticulationCfg = ALMA_D_WHEELS_NO_TOOL_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+    robot: ArticulationCfg = ANYMAL_D_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
     # lights
     light = AssetBaseCfg(
@@ -117,10 +130,6 @@ class ActionsCfg:
     leg_joint_pos = mdp.JointPositionActionCfg(
         asset_name="robot", joint_names=[".*HAA", ".*HFE", ".*KFE"], scale=0.5, use_default_offset=True
     )                
-    wheel_joint_vel = mdp.JointVelocityActionCfg(
-        asset_name="robot", joint_names=[".*WHEEL"], scale=5.0, use_default_offset=True
-    )
-    manipulator_joint_pos = mdp.JointPositionActionCfg(asset_name="robot", joint_names=ARM_JOINT_NAMES, scale=0.0, use_default_offset=True)
 
 
 @configclass
@@ -133,8 +142,8 @@ class ObservationsCfg:
 
         # observation terms (order preserved)
         undesired_contacts = ObsTerm(
-            func=mdp.obs_undesired_contacts,
-            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=ARM_BODY_NAMES), "threshold": 1.0},
+            func=obs_undesired_contacts,
+            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=BODY_NAMES), "threshold": 1.0}, #TODO fill in the body names
         )
 
         def __post_init__(self):
@@ -155,7 +164,7 @@ class RandomizationCfg:
 ##
 
 @configclass
-class QuadrupedEnvCfg(BaseEnvCfg):
+class QuadrupedEnvCfg(ManagerBasedEnvCfg):
     """Configuration for the locomotion velocity-tracking environment."""
 
     # Scene settings
@@ -179,13 +188,13 @@ def main():
     """Main function."""
 
     # setup base environment
-    env = BaseEnv(cfg=QuadrupedEnvCfg(scene=MySceneCfg(num_envs=args_cli.num_envs, env_spacing=2.5, replicate_physics=False)))
+    env = ManagerBasedEnv(cfg=QuadrupedEnvCfg(scene=MySceneCfg(num_envs=args_cli.num_envs, env_spacing=2.5, replicate_physics=False)))
     obs, _ = env.reset()
     
     # initalize data struct to save EE pose in base frame (position & orientation)
     data_ee_pose = None
     data_ee_joint_pos = None
-    number_of_samples = 100000
+    number_of_samples = 100
 
     # simulate physics
     count = 0
@@ -204,15 +213,15 @@ def main():
             # Randomize the joint positions of the manipulator
             if count % 10 == 0:
                 # Get transforms of the end effector in world frame
-                ee_pos_w = robot._data.body_pos_w[:, robot.find_bodies(["dynaarm_END_EFFECTOR"])[0]].squeeze(1)
-                ee_quat_w = robot._data.body_quat_w[:, robot.find_bodies(["dynaarm_END_EFFECTOR"])[0]].squeeze(1)
+                ee_pos_w = robot._data.body_pos_w[:, robot.find_bodies(["LF_HIP"])[0]].squeeze(1)
+                ee_quat_w = robot._data.body_quat_w[:, robot.find_bodies(["LF_HIP"])[0]].squeeze(1)
                 base_pos_w = robot._data.root_pos_w
                 base_quat_w = robot._data.root_quat_w
                 # Convert to base frame
                 ee_pos_b, ee_quat_b = subtract_frame_transforms(base_pos_w, base_quat_w, ee_pos_w, ee_quat_w)
                 ee_pose = torch.cat((ee_pos_b, ee_quat_b), dim=1)
                 # Joint positions
-                ee_joint_pos = robot._data.joint_pos[:, robot.find_joints(ARM_JOINT_NAMES)[0]]
+                ee_joint_pos = robot._data.joint_pos[:, robot.find_joints(JOINT_NAMES)[0]]
                 # Save the data
                 if data_ee_pose is None:
                     if not count == 0:
@@ -229,7 +238,7 @@ def main():
                     data_ee_joint_pos = torch.cat((data_ee_joint_pos, ee_joint_pos), dim=0)
                 
                 # Generate random joint positions for the manipulator
-                joints_manipulator = robot.find_joints(ARM_JOINT_NAMES)[0]
+                joints_manipulator = robot.find_joints(BODY_NAMES)[0]
                 limits = robot._data.soft_joint_pos_limits[:,joints_manipulator]
                 
                 # Generate random numbers in the range [0, 1]
