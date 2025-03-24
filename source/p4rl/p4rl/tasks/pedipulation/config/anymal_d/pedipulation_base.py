@@ -26,6 +26,8 @@ import os
 # from p4rl import P4RL_EXT_DIR # cause "can not import from partially initialized module" error
 P4RL_EXT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../.."))
 import p4rl.tasks.pedipulation.mdp as mdp
+from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR
+
 
 
 
@@ -40,6 +42,7 @@ ANYMAL_D_CFG = ArticulationCfg(
         # This models the shoulder bodies as capsules, which the locomotion focused default model does not.
         # It is in git lfs and needs to be downloaded.
         usd_path=f"{P4RL_EXT_DIR}/p4rl/assets/anymal-d-pedipulation/anymal_d.usd",
+        # usd_path=f"{ISAACLAB_NUCLEUS_DIR}/Robots/ANYbotics/ANYmal-D/anymal_d.usd",
         activate_contact_sensors=True,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             disable_gravity=False,

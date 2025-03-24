@@ -25,7 +25,7 @@ parser.add_argument("--num_envs", type=int, default=None, help="Number of enviro
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment. Set -1 to seed randomly.")
 parser.add_argument("--max_iterations", type=int, default=None, help="RL Policy training iterations.")
-parser.add_argument("--learning_rate", type=int, default=None, help="learning rate for the RL algorithm")
+parser.add_argument("--learning_rate", type=float, default=None, help="learning rate for the RL algorithm")
 parser.add_argument("--freeze_pretrain_until_iteration", type=int, default=None, help="when finetuning, freeze pretrain until this iteration")
 parser.add_argument("--pretrained_weights_path", type=str, default=None, help="absolute path of pretrained weights")
 

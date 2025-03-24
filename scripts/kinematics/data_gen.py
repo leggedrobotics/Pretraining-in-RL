@@ -29,8 +29,6 @@ AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
 args_cli = parser.parse_args()
 
-args_cli.headless = True
-
 # launch omniverse app
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
@@ -61,6 +59,15 @@ from isaaclab.utils import configclass
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 from isaaclab_assets.robots.anymal import ANYDRIVE_4_MLP_ACTUATOR_CFG
 import os
+from isaaclab.markers import VisualizationMarkersCfg, VisualizationMarkers
+from isaaclab.markers.config import FRAME_MARKER_CFG
+from einops import rearrange, repeat, reduce
+
+
+from isaacsim.core.utils.viewports import set_camera_view
+
+
+
 # from p4rl import P4RL_EXT_DIR # cause "can not import from partially initialized module" error
 P4RL_EXT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../.."))
 import p4rl.tasks.pedipulation.mdp as mdp
@@ -73,6 +80,8 @@ from p4rl.tasks.pedipulation.config.anymal_d.pedipulation_base import ANYMAL_D_C
 
 BODY_NAMES = ['base', 'LF_HIP', 'LF_THIGH', 'LF_SHANK', 'LF_FOOT', 'LH_HIP', 'LH_THIGH', 'LH_SHANK', 'LH_FOOT', 'RF_HIP', 'RF_THIGH', 'RF_SHANK', 'RF_FOOT', 'RH_HIP', 'RH_THIGH', 'RH_SHANK', 'RH_FOOT']
 JOINT_NAMES = ['LF_HAA', 'LH_HAA', 'RF_HAA', 'RH_HAA', 'LF_HFE', 'LH_HFE', 'RF_HFE', 'RH_HFE', 'LF_KFE', 'LH_KFE', 'RF_KFE', 'RH_KFE']
+
+
 
 def obs_undesired_contacts(env: ManagerBasedEnvCfg, threshold: float, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
     """Penalize undesired contacts as the number of violations that are above a threshold."""
@@ -187,93 +196,137 @@ class QuadrupedEnvCfg(ManagerBasedEnvCfg):
 def main():
     """Main function."""
 
+    vis_size = 0.1
+    visualizer_cfg: VisualizationMarkersCfg = FRAME_MARKER_CFG.replace(prim_path="/Visuals/CartesionSpaceMarkers")
+    visualizer_cfg.markers["frame"].scale = (vis_size, vis_size, vis_size)
+    marker = VisualizationMarkers(visualizer_cfg)
+
     # setup base environment
     env = ManagerBasedEnv(cfg=QuadrupedEnvCfg(scene=MySceneCfg(num_envs=args_cli.num_envs, env_spacing=2.5, replicate_physics=False)))
     obs, _ = env.reset()
+
+    set_camera_view(eye=[1.5, 1.5, 4.0], target=[0, 0, 2.5], camera_prim_path="/OmniverseKit_Persp")
+
+
+    # extracted joint limits from the USD file for the original locomotion task.
+    # the USD file for pedipulation does not include the joint limits. 
+
+    joint_limits = torch.tensor([[-0.7854,  0.6109],
+                                [-0.7854,  0.6109],
+                                [-0.6109,  0.7854],
+                                [-0.6109,  0.7854],
+                                [-9.4248,  9.4248],
+                                [-9.4248,  9.4248],
+                                [-9.4248,  9.4248],
+                                [-9.4248,  9.4248],
+                                [-9.4248,  9.4248],
+                                [-9.4248,  9.4248],
+                                [-9.4248,  9.4248],
+                                [-9.4248,  9.4248]], device='cuda:0') 
+ 
+    soft_joint_limits = torch.tensor([[-0.7505,  0.5760],
+            [-0.7505,  0.5760],
+            [-0.5760,  0.7505],
+            [-0.5760,  0.7505],
+            [-8.9535,  8.9535],
+            [-8.9535,  8.9535],
+            [-8.9535,  8.9535],
+            [-8.9535,  8.9535],
+            [-8.9535,  8.9535],
+            [-8.9535,  8.9535],
+            [-8.9535,  8.9535],
+            [-8.9535,  8.9535]], device='cuda:0')
+    # joint_names = ['LF_HAA', 'LH_HAA', 'RF_HAA', 'RH_HAA', 'LF_HFE', 'LH_HFE', 'RF_HFE', 'RH_HFE', 'LF_KFE', 'LH_KFE', 'RF_KFE', 'RH_KFE']
     
-    # initalize data struct to save EE pose in base frame (position & orientation)
-    data_ee_pose = None
-    data_ee_joint_pos = None
-    number_of_samples = 100
+    # uniformly sample 10 samples from the joint limits
+    joint_pos_samples = torch.rand((10, 12), device='cuda:0') * (joint_limits[:, 1] - joint_limits[:, 0]) + joint_limits[:, 0] # [10, 12]
+
+    num_samples = joint_pos_samples.shape[0]
+
+    joint_pos_valid = []
+    link_states_valid = []
 
     # simulate physics
     count = 0
+    sample_idx = 0
     while simulation_app.is_running():
-        with torch.inference_mode():
-            
-            # reset base state (alma should stand still)
-            obs, _ = env.reset()
 
-            robot = env.scene.articulations["robot"]
-            root_state = robot.data.default_root_state.clone()
-            root_state[:, :3] += env.scene.terrain.env_origins
-            robot.write_root_state_to_sim(root_state)
-            joint_pos, joint_vel = robot.data.default_joint_pos.clone(), robot.data.default_joint_vel.clone()
+        if count%1000 == 0:
+                
+            with torch.inference_mode():
 
-            # Randomize the joint positions of the manipulator
-            if count % 10 == 0:
-                # Get transforms of the end effector in world frame
-                ee_pos_w = robot._data.body_pos_w[:, robot.find_bodies(["LF_HIP"])[0]].squeeze(1)
-                ee_quat_w = robot._data.body_quat_w[:, robot.find_bodies(["LF_HIP"])[0]].squeeze(1)
-                base_pos_w = robot._data.root_pos_w
-                base_quat_w = robot._data.root_quat_w
+                if sample_idx >= num_samples:
+                    break
+                
+                # reset base state (alma should stand still)
+                obs, _ = env.reset()
+                joint_pos_sample = joint_pos_samples[sample_idx].unsqueeze(0)
+
+                robot = env.scene.articulations["robot"]
+
+                ## elevate the robot to have better view of the foot
+                root_state = robot.data.default_root_state.clone()
+                root_state[:, 2] += 2.0 
+                robot.write_root_state_to_sim(root_state)
+                
+                # joint_pos, joint_vel = robot.data.default_joint_pos.clone(), robot.data.default_joint_vel.clone()
+
+                # directly apply the joint positions to the simulation
+                zero_joint_vel = torch.zeros_like(joint_pos_sample)
+                robot.write_joint_state_to_sim(joint_pos_sample, zero_joint_vel)
+
+                n_body = len(BODY_NAMES)
+
+                # read the link states of the robot, then subtract the base position and orientation to get 
+                # the pose in the base frame
+                ee_pos_w = robot._data.body_pos_w[:, robot.find_bodies(BODY_NAMES)[0]]
+                ee_quat_w = robot._data.body_quat_w[:, robot.find_bodies(BODY_NAMES)[0]]
+                base_pos_w = repeat(robot._data.root_pos_w, 'b d -> b n d', n=n_body)
+                base_quat_w = repeat(robot._data.root_quat_w, 'b d -> b n d', n=n_body)
+
+                # visualize the pose
+                marker.visualize(marker_indices=[0]*n_body*ee_pos_w.shape[0], translations=rearrange(ee_pos_w, 'b n d -> (b n) d'), orientations=rearrange(ee_quat_w, 'b n d -> (b n) d'))
+
                 # Convert to base frame
                 ee_pos_b, ee_quat_b = subtract_frame_transforms(base_pos_w, base_quat_w, ee_pos_w, ee_quat_w)
-                ee_pose = torch.cat((ee_pos_b, ee_quat_b), dim=1)
-                # Joint positions
-                ee_joint_pos = robot._data.joint_pos[:, robot.find_joints(JOINT_NAMES)[0]]
-                # Save the data
-                if data_ee_pose is None:
-                    if not count == 0:
-                        data_ee_pose = ee_pose
-                        data_ee_joint_pos = ee_joint_pos
-                else:
-                    # check for collisions and remove these commands
-                    if torch.nonzero(obs['policy'][:,0]).any():
-                        # remove the commands that have collisions
-                        ee_pose = ee_pose[obs['policy'][:,0] == 0]
-                        ee_joint_pos = ee_joint_pos[obs['policy'][:,0] == 0]
 
-                    data_ee_pose = torch.cat((data_ee_pose, ee_pose), dim=0)
-                    data_ee_joint_pos = torch.cat((data_ee_joint_pos, ee_joint_pos), dim=0)
+                fake_data_frame = torch.cat((ee_pos_b, ee_quat_b), dim=-1)
+
+
                 
-                # Generate random joint positions for the manipulator
-                joints_manipulator = robot.find_joints(BODY_NAMES)[0]
-                limits = robot._data.soft_joint_pos_limits[:,joints_manipulator]
+
+                # check for collisions, if any, do not record this sample to dataframe. 
+                # # ?? maybe we do not need to filter out samples with collisions
+
+                # if torch.nonzero(obs['policy'][:,0]).any():
+                #     # remove the commands that have collisions
+                #     ee_pose = ee_pose[obs['policy'][:,0] == 0]
+                #     ee_joint_pos = ee_joint_pos[obs['policy'][:,0] == 0]
+
+                # data_ee_pose = torch.cat((data_ee_pose, ee_pose), dim=0)
+                # data_ee_joint_pos = torch.cat((data_ee_joint_pos, ee_joint_pos), dim=0)
+
+                joint_pos_valid.append(joint_pos_sample)
+                link_states_valid.append(fake_data_frame)
+
+                sample_idx += 1
+
+
+        env.sim.render() # just render, do not step the simulation; so the physics simulation is not running
+
+        # action = env.scene.articulations["robot"].data.default_joint_pos
+        # obs, _ = env.step(action)
+        count += 1
+
+
                 
-                # Generate random numbers in the range [0, 1]
-                random_numbers = torch.rand_like(limits[..., 0])
-
-                # Calculate random values within each specified [lower, upper] pair
-                random_values = limits[..., 0] + (limits[..., 1] - limits[..., 0]) * random_numbers
-                
-            # Overwrite the joint positions of the manipulator with the random values
-            joint_pos[:, joints_manipulator] = random_values
-
-            # Write the joint positions to the simulator
-            robot.write_joint_state_to_sim(joint_pos, joint_vel)
-            # reset the internal state
-            robot.reset()
-
-            # infer action - default joint position
-            action = env.scene.articulations["robot"].data.default_joint_pos
-            
-            # step env
-            obs, _ = env.step(action)
-            # update counter
-            count += 1
-            
-            # Stop after a certain number of samples
-            if data_ee_pose is not None:
-                print(f"Number of samples: {data_ee_pose.shape[0]}")
-                if data_ee_pose.shape[0] >= number_of_samples:
-                    break
+ 
     env.close()
         
     # Save the data
     print("[INFO]: Saving data!")
-    np.save("data_loco_manipulation/data_ee_poses.npy", data_ee_pose.detach().cpu().numpy())
-    np.save("data_loco_manipulation/data_ee_joint_pos.npy", data_ee_joint_pos.detach().cpu().numpy())
+    # np.save("data_loco_manipulation/data_ee_poses.npy", data_ee_pose.detach().cpu().numpy())
+    # np.save("data_loco_manipulation/data_ee_joint_pos.npy", data_ee_joint_pos.detach().cpu().numpy())
     
     print("[INFO]: Script has finished!")
             
