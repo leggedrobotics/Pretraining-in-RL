@@ -100,6 +100,9 @@ class RslRlPpoAlgorithmCfg:
     max_grad_norm: float = MISSING
     """The maximum gradient norm."""
 
+    optimizer: str = "Adam"
+    """Can be Adam or SGD. The optimizer to use."""
+
 
 @configclass
 class RslRlOnPolicyRunnerCfg:

@@ -29,12 +29,14 @@ class AnymalDFlatPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         entropy_coef=0.004,
         num_learning_epochs=5,
         num_mini_batches=4,
-        learning_rate=5e-5,
+        learning_rate=1e-4,
         schedule="adaptive",
         gamma=0.99,
         lam=0.95,
         desired_kl=0.01,
         max_grad_norm=1.0,
+        optimizer="Adam",
+        # optimizer="SGD",
     )
 
 @configclass

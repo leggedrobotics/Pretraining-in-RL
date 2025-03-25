@@ -62,6 +62,8 @@ import os
 from isaaclab.markers import VisualizationMarkersCfg, VisualizationMarkers
 from isaaclab.markers.config import FRAME_MARKER_CFG
 from einops import rearrange, repeat, reduce
+import h5py
+from tqdm import tqdm
 
 
 from isaacsim.core.utils.viewports import set_camera_view
@@ -88,10 +90,8 @@ def obs_undesired_contacts(env: ManagerBasedEnvCfg, threshold: float, sensor_cfg
     # extract the used quantities (to enable type-hinting)
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
     # check if contact force is above threshold
-    net_contact_forces = contact_sensor.data.net_forces_w_history
-    is_contact = torch.max(torch.norm(net_contact_forces[:, :, sensor_cfg.body_ids], dim=-1), dim=1)[0] > threshold
-    # sum over contacts for each environment
-    return torch.sum(is_contact, dim=1).reshape(env.num_envs, -1)
+    contact_forces_norm = torch.norm(contact_sensor.data.net_forces_w_history[:, 0], dim=-1) # [num_envs, num_bodies]
+    return contact_forces_norm # [num_envs, num_bodies]
 ##
 # Scene definition
 ##
@@ -117,6 +117,7 @@ class MySceneCfg(InteractiveSceneCfg):
 
     # add robot
     robot: ArticulationCfg = ANYMAL_D_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+    robot.init_state.pos = (0, 0, 2.0)
 
     # lights
     light = AssetBaseCfg(
@@ -152,7 +153,7 @@ class ObservationsCfg:
         # observation terms (order preserved)
         undesired_contacts = ObsTerm(
             func=obs_undesired_contacts,
-            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=BODY_NAMES), "threshold": 1.0}, #TODO fill in the body names
+            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=BODY_NAMES), "threshold": 100.0}, #TODO what is the good threshold for collision detection?
         )
 
         def __post_init__(self):
@@ -205,6 +206,8 @@ def main():
     env = ManagerBasedEnv(cfg=QuadrupedEnvCfg(scene=MySceneCfg(num_envs=args_cli.num_envs, env_spacing=2.5, replicate_physics=False)))
     obs, _ = env.reset()
 
+    assert env.num_envs == 1, "This script only supports a single environment."
+
     set_camera_view(eye=[1.5, 1.5, 4.0], target=[0, 0, 2.5], camera_prim_path="/OmniverseKit_Persp")
 
 
@@ -239,7 +242,8 @@ def main():
     # joint_names = ['LF_HAA', 'LH_HAA', 'RF_HAA', 'RH_HAA', 'LF_HFE', 'LH_HFE', 'RF_HFE', 'RH_HFE', 'LF_KFE', 'LH_KFE', 'RF_KFE', 'RH_KFE']
     
     # uniformly sample 10 samples from the joint limits
-    joint_pos_samples = torch.rand((10, 12), device='cuda:0') * (joint_limits[:, 1] - joint_limits[:, 0]) + joint_limits[:, 0] # [10, 12]
+    num_samples = 1000000
+    joint_pos_samples = torch.rand((num_samples, 12), device='cuda:0') * (joint_limits[:, 1] - joint_limits[:, 0]) + joint_limits[:, 0] # [10, 12]
 
     num_samples = joint_pos_samples.shape[0]
 
@@ -249,77 +253,88 @@ def main():
     # simulate physics
     count = 0
     sample_idx = 0
+
+    self_collision_count = 0
+
     while simulation_app.is_running():
 
-        if count%1000 == 0:
+        # if count%1000 == 0:
+        # if True:
+        for sample_idx in tqdm(range(num_samples)):
                 
             with torch.inference_mode():
 
-                if sample_idx >= num_samples:
-                    break
+                # if sample_idx >= num_samples:
+                #     break
                 
-                # reset base state (alma should stand still)
                 obs, _ = env.reset()
                 joint_pos_sample = joint_pos_samples[sample_idx].unsqueeze(0)
 
                 robot = env.scene.articulations["robot"]
 
-                ## elevate the robot to have better view of the foot
-                root_state = robot.data.default_root_state.clone()
-                root_state[:, 2] += 2.0 
-                robot.write_root_state_to_sim(root_state)
+                # root_state = robot.data.default_root_state.clone()
+                # root_state[:, 2] += 2.0 
+                # robot.write_root_state_to_sim(root_state)
                 
                 # joint_pos, joint_vel = robot.data.default_joint_pos.clone(), robot.data.default_joint_vel.clone()
 
                 # directly apply the joint positions to the simulation
                 zero_joint_vel = torch.zeros_like(joint_pos_sample)
                 robot.write_joint_state_to_sim(joint_pos_sample, zero_joint_vel)
+                # just make one step to get new observations of whether there is collision
+                action = env.scene.articulations["robot"].data.default_joint_pos
+                obs, _ = env.step(action)
 
                 n_body = len(BODY_NAMES)
 
                 # read the link states of the robot, then subtract the base position and orientation to get 
                 # the pose in the base frame
-                ee_pos_w = robot._data.body_pos_w[:, robot.find_bodies(BODY_NAMES)[0]]
-                ee_quat_w = robot._data.body_quat_w[:, robot.find_bodies(BODY_NAMES)[0]]
-                base_pos_w = repeat(robot._data.root_pos_w, 'b d -> b n d', n=n_body)
-                base_quat_w = repeat(robot._data.root_quat_w, 'b d -> b n d', n=n_body)
+                ee_pos_w = robot._data.body_pos_w[:, robot.find_bodies(BODY_NAMES)[0]].squeeze(0)
+                ee_quat_w = robot._data.body_quat_w[:, robot.find_bodies(BODY_NAMES)[0]].squeeze(0)
+                base_pos_w = repeat(robot._data.root_pos_w, 'b d -> b n d', n=n_body).squeeze(0)
+                base_quat_w = repeat(robot._data.root_quat_w, 'b d -> b n d', n=n_body).squeeze(0)
 
                 # visualize the pose
-                marker.visualize(marker_indices=[0]*n_body*ee_pos_w.shape[0], translations=rearrange(ee_pos_w, 'b n d -> (b n) d'), orientations=rearrange(ee_quat_w, 'b n d -> (b n) d'))
+                marker.visualize(marker_indices=[0]*n_body*1, translations=ee_pos_w, orientations=ee_quat_w)
+                # marker.visualize(marker_indices=[0]*n_body*{num_envs}, translations=rearrange(ee_pos_w, 'b n d -> (b n) d'), orientations=rearrange(ee_quat_w, 'b n d -> (b n) d'))
 
                 # Convert to base frame
                 ee_pos_b, ee_quat_b = subtract_frame_transforms(base_pos_w, base_quat_w, ee_pos_w, ee_quat_w)
 
-                fake_data_frame = torch.cat((ee_pos_b, ee_quat_b), dim=-1)
-
-
-                
+                single_data_frame = torch.cat((ee_pos_b, ee_quat_b, obs['policy'].squeeze(0).unsqueeze(-1)), dim=-1)
 
                 # check for collisions, if any, do not record this sample to dataframe. 
                 # # ?? maybe we do not need to filter out samples with collisions
 
-                # if torch.nonzero(obs['policy'][:,0]).any():
-                #     # remove the commands that have collisions
-                #     ee_pose = ee_pose[obs['policy'][:,0] == 0]
-                #     ee_joint_pos = ee_joint_pos[obs['policy'][:,0] == 0]
-
-                # data_ee_pose = torch.cat((data_ee_pose, ee_pose), dim=0)
-                # data_ee_joint_pos = torch.cat((data_ee_joint_pos, ee_joint_pos), dim=0)
+                if obs['policy'].sum() > 0:
+                    self_collision_count += 1
+                    # [BODY_NAMES[idx] for idx in obs['policy'][0].nonzero().flatten().cpu().tolist()]
 
                 joint_pos_valid.append(joint_pos_sample)
-                link_states_valid.append(fake_data_frame)
+                link_states_valid.append(single_data_frame)
 
-                sample_idx += 1
+                # sample_idx += 1
 
+                if not args_cli.headless:
+                    for _ in range(100):
+                        env.sim.render()
 
-        env.sim.render() # just render, do not step the simulation; so the physics simulation is not running
+        break
 
-        # action = env.scene.articulations["robot"].data.default_joint_pos
-        # obs, _ = env.step(action)
-        count += 1
+    X = torch.stack(joint_pos_valid, dim=0)
+    Y = torch.stack(link_states_valid, dim=0)
 
+    print("Among all {} samples, there are {} samples with self-collisions.".format(num_samples, self_collision_count))
 
-                
+    # Save dataset
+    with h5py.File("./logs/datasets/mock_kinematic_dataset.h5", "w") as f:
+        f.create_dataset("X", data=X.cpu().numpy())
+        f.create_dataset("Y", data=Y.cpu().numpy())
+        f.attrs["input_joint_names"] = ",".join(JOINT_NAMES)  # Store as a single string
+        f.attrs["output_body_names"] = ",".join(BODY_NAMES)  # Store as a single string
+        f.attrs["output_feature_dimensions"] = "translation(x,y,z),quaternion(x,y,z,w),contact_force(f)"
+
+    print("Dataset saved successfully!")
  
     env.close()
         
