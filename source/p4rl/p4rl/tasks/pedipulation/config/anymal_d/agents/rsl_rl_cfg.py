@@ -5,6 +5,10 @@
 
 from isaaclab.utils import configclass
 from p4rl.rsl_rl.rl_cfg import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, RslRlPpoAlgorithmCfg, RslRlPpoCommandedDeepActorCriticCfg
+from rsl_rl.addons.kinematics.modules import KinematicSubmoduleConfig
+
+
+
 
 @configclass
 class AnymalDFlatPPORunnerCfg(RslRlOnPolicyRunnerCfg):
@@ -21,7 +25,7 @@ class AnymalDFlatPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         final_mlp_dims=[128, 128, 128],
         init_noise_std=1.0,
         activation="elu",
-    )
+    ) 
     algorithm = RslRlPpoAlgorithmCfg(
         value_loss_coef=1.0,
         use_clipped_value_loss=True,
@@ -38,6 +42,19 @@ class AnymalDFlatPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         optimizer="Adam",
         # optimizer="SGD",
     )
+
+
+@configclass
+class AnymalDPreKineFlatPPORunnerCfg(AnymalDFlatPPORunnerCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        self.policy.pretrained_module_config = KinematicSubmoduleConfig(input_dim = 12,
+                                                            num_bodies = 17,
+                                                            num_output_features_per_body= 6,
+                                                            hidden_dim = 256,
+                                                            input_slice= slice(12, 24), # must be consistent with the ObservationCfg! 
+                                                            weight_path= "./logs/pretrain/kinematic_submodule.pt")
+
 
 @configclass
 class AnymalDRoughPPORunnerCfg(AnymalDFlatPPORunnerCfg):

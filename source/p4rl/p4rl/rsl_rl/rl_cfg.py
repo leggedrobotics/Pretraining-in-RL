@@ -7,6 +7,7 @@ from dataclasses import MISSING
 from typing import Literal, Union
 
 from isaaclab.utils import configclass
+from rsl_rl.addons.kinematics.modules import KinematicSubmoduleConfig
 
 @configclass
 class RslRlPpoCommandedDeepActorCriticCfg:
@@ -35,6 +36,9 @@ class RslRlPpoCommandedDeepActorCriticCfg:
 
     activation: str = MISSING
     """The activation function for the actor and critic networks."""
+
+    pretrained_module_config: KinematicSubmoduleConfig | None = None
+    """The configuration for the pretrained kinematic module. Default is None."""
 
 
 @configclass

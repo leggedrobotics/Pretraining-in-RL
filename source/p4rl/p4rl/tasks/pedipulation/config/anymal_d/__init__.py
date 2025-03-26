@@ -17,6 +17,27 @@ from . import agents
 # flat
 
 gym.register(
+    id="P4RL-Pre-Kinematic-Pedipulation-Flat-Blind-Anymal-D-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": blind.PedipulationPositionBlindFlatEnvCfg,
+        "rsl_rl_cfg_entry_point": agents.rsl_rl_cfg.AnymalDPreKineFlatPPORunnerCfg,
+    },
+)
+
+
+gym.register(
+    id="P4RL-Pre-Kinematic-Pedipulation-Flat-Blind-Anymal-D-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": blind.PedipulationPositionBlindFlatEnvCfg_PLAY,
+        "rsl_rl_cfg_entry_point": agents.rsl_rl_cfg.AnymalDPreKineFlatPPORunnerCfg,
+    },
+)
+
+gym.register(
     id="P4RL-Pedipulation-Flat-Blind-Anymal-D-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
