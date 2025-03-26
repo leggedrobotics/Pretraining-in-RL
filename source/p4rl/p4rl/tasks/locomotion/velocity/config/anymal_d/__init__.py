@@ -7,6 +7,26 @@ from . import agents, flat_env_cfg, rough_env_cfg
 ##
 
 gym.register(
+    id="P4RL-Pre-Kinematic-Velocity-Flat-Anymal-D-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": flat_env_cfg.AnymalDFlatEnvCfg,
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:AnymalDPreKineFlatPPORunnerCfg",
+    },
+)
+
+gym.register(
+    id="P4RL-Pre-Kinematic-Velocity-Flat-Anymal-D-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": flat_env_cfg.AnymalDFlatEnvCfg_PLAY,
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:AnymalDPreKineFlatPPORunnerCfg",
+    },
+)
+
+gym.register(
     id="P4RL-Velocity-Flat-Anymal-D-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,

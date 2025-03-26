@@ -52,7 +52,7 @@ class AnymalDPreKineFlatPPORunnerCfg(AnymalDFlatPPORunnerCfg):
                                                             num_bodies = 17,
                                                             num_output_features_per_body= 6,
                                                             hidden_dim = 256,
-                                                            input_slice= slice(12, 24), # must be consistent with the ObservationCfg! 
+                                                            input_slice= (12, 24), # must be consistent with the ObservationCfg! 
                                                             weight_path= "./logs/pretrain/kinematic_submodule.pt")
 
 
